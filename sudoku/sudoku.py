@@ -7,6 +7,7 @@ int values.
 e.g. my_board['A1'] = 8
 """
 import sys
+import copy
 
 # for purposes of box org, have groupings of rows asnd cols per box
 # boxes will be numbered as followed 
@@ -45,164 +46,187 @@ def board_to_string(board):
             ordered_vals.append(str(board[r + c]))
     return ''.join(ordered_vals)
 
-
 def backtracking(board):
-    """Takes a board and returns solved board."""
-    # initialize domain to keep track of possible solutions for a slot
-    domains = __initDomains()
-    # first look at other slots in same box
-    for box in BOXES:
-        for slot in box:
-            # if slot is already assigned a val, continue
-            if board[slot] != 0: continue
-            # parse missing nums in box
-            for num in __missingNums(box, board):
-                # if num does not violate constraints for row and col add to domain of slot
-                if __isValidRow(slot[0], board, num) and __isValidCol(slot[1], board, num):   
-                    domains[slot].append(num)
-        # check all slots in box again
-        # if only 1 possible val in domain, write it in and forward check
-        # after forward checking backtrack board again
-        for slot in box:
-            if len(domains[slot]) == 1 and board[slot] == 0:
-                board[slot] = domains[slot][0]
-                __forwardChecking(box, slot, board[slot], domains)
-                backtracking(board)
-    board, domains = __tryTwos(domains, board)
-    #__mrv(domains, board)
-    # after we write in all slots that have 1 possible val we need to try and fill other slots using mrv heuristic
+    domains = __initDomains(board)
+    return __backtrack(board, domains)
 
-    return board
+def __backtrack(board, domains):
+    if __everyTileFilled(board): 
+        #print("every tile filled")
+        return board
+    tile = __getUnassignedTile(board, domains)
+    if tile == None: return None
+    for candidate in domains[tile]:
+        if __isConsistent(candidate, tile, board):
+            newDomains = __forwardChecking(tile, candidate, copy.deepcopy(domains))
+            # results in an empty domain
+            if newDomains == None: 
+                continue
+            board[tile] = candidate
+            result = __backtrack(board.copy(), newDomains)
+            if __resultWorks(result): 
+                return result
+            board[tile] = 0
 
-def __tryTwos(domains, board):
-    for box in BOXES:
-        for slot in box:
-            if len(domains[slot]) == 2:
-                print("domain of ", slot, ": ", domains[slot])
-                for candidate in domains[slot]:
-                    print("trying ", candidate)
-                    candidateWorks = __candidateWorks(candidate, slot, board.copy(), box, domains.copy())
-                    print("domain: ", domains[slot])
-                    #if candidateWorks is not None:
-                        #board, domains = candidateWorks
-                        #break
-    return  board, domains
-
-def __candidateWorks(candidate, slot, board, box, domains):
-    
-
-def __initDomains():
-    domains = {}
-    for i in ROW:
-        for j in COL:
-            slot = i+j
-            # init empty domain 
-            if board[slot] == 0: 
-                domains[slot] = []
-            # add val to domain
-            else:
-                domains[slot] = [board[slot]]
-    return domains
-
-def __missingNums(box, board):
-    # return nums that box is missing
-    nums = []
-    for slot in box:
-        nums.append(board[slot])
-    missingNums = []
-    for num in range(1,10):
-        if num not in nums:
-            missingNums.append(num)
-    return missingNums
-
-def __isValidRow(rowNum, board, candidate) -> bool:
-    row = []
-    for i in COL:
-        row.append(board[rowNum+i])
-    if candidate in row: return False
+def __everyTileFilled(board):
+    for key in board:
+        if board[key] == 0: return False
     return True
 
-def __isValidCol(colNum, board, candidate) -> bool:
-    col = []
-    for i in ROW:
-        col.append(board[i+colNum])
-    if candidate in col: return False
-    return True
-
-def isSolution(board):
-    if not __checkRows(board): return False
-    if not __checkCols(board): return False
-    if not __checkBoxes(board): return False
-    return True
-
-def __checkRows(board) -> bool:
-    for i in ROW: 
-        row = []
-        for j in COL:
-            row.append(board[i+j])
-        if not __checkRow(row): 
-            print("row is WRONG")
-            print(row)
-            return False
-    return True
-        
-def __checkRow(row) -> bool:
-    for num in range(1,10):
-        if num not in row: 
-            print(num, " not in row")
-            return False
-    return True
-
-def __checkCols(board) -> bool:
-    for i in COL:
-        col = []
-        for j in ROW:
-            col.append(board[j+i])
-        if not __checkCol(col): 
-            print("col is WRONG")
-            print(col)
-            return False
-    return True
-
-def __checkCol(col) -> bool:
-    for num in range(1,10):
-        if num not in col: return False
-    return True
-
-def __checkBoxes(board) -> bool:
-    vals = []
-    for box in BOXES:
-        for slot in box:
-            vals.append(board[slot])
-        for num in range(1,10):
-            if num not in vals: 
-                print(num, " not in box ", box)
-                return False
-    return True
-
-def __forwardChecking(box, assignedSlot, val, domains):
-    # check box for inconsistencies
-    for slot in box:
-        if val in domains[slot]:
-            if len(domains[slot]) == 1:
-                return False
-            domains[slot].remove(val)
+def __forwardChecking(assignedSlot, val, domains):
+    box = __getBox(assignedSlot)
+    for tile in box:
+        if tile == assignedSlot: continue
+        if val in domains[tile]:
+            if len(domains[tile]) == 1: 
+                #print(val, " in ", assignedSlot, " empties domain of ", tile)
+                return None
+            domains[tile].remove(val)
     row = assignedSlot[0]
     col = assignedSlot[1]
-    # check row for inconsistencies
-    for i in COL:
-        slot = row+i
-        if val in domains[slot]:
-            if len(domains[slot]) == 1:
+    for c in COL:
+        if row+c == assignedSlot: continue
+        if val in domains[row+c]:
+            if len(domains[row+c]) == 1: 
+                #print(val, " in ", assignedSlot, " empties domain of ", row+c)
+                return None
+            domains[row+c].remove(val)
+    for r in ROW:
+        if r+col == assignedSlot: continue
+        if val in domains[r+col]:
+            if len(domains[r+col]) == 1: 
+                #print(val, " in ", assignedSlot, " empties domain of ", r+col)
+                return None
+            domains[r+col].remove(val)
+    return domains
+
+def __resultWorks(result) -> bool:
+    if result == None: 
+        return False
+    for box in BOXES:
+        if not __boxWorks(box, result): return False
+    for col in COL:
+        if not __colWorks(col, result): return False
+    for row in ROW:
+        if not __rowWorks(row, result): return False
+    return True
+
+def __colWorks(col, result) -> bool:
+    column = []
+    for r in ROW:
+        column.append(result[r+col])
+    for num in range(1,10):
+        if column.count(num) > 1: return False
+    return True
+
+def __rowWorks(r, result) -> bool:
+    row = []
+    for c in COL:
+        row.append(result[r+c])
+    for num in range(1,10):
+        if row.count(num) > 1: return False
+    return True
+
+def __boxWorks(box, result) -> bool:
+    boxVals = []
+    for tile in box: 
+        boxVals.append(result[tile])
+    for num in range(1,10):
+        if boxVals.count(num) > 1: return False
+    return True
+
+def __isConsistent(candidate, tile, board) -> bool:
+    box = __getBox(tile)
+    return not __isInBox(box, candidate, board) and not __isInCol(tile[1], candidate, board) and not __isInRow(tile[0], candidate, board)
+
+def __getBox(tile):
+    if tile in BOX1: return BOX1
+    if tile in BOX2: return BOX2
+    if tile in BOX3: return BOX3
+    if tile in BOX4: return BOX4
+    if tile in BOX5: return BOX5
+    if tile in BOX6: return BOX6
+    if tile in BOX7: return BOX7
+    if tile in BOX8: return BOX8
+    if tile in BOX9: return BOX9
+
+def __getUnassignedTile(board, domains):
+    for num in range(1,10):
+        unassignedTile = __getDomainOfSize(num, domains, board)
+        if unassignedTile is not None: return unassignedTile
+
+def __getDomainOfSize(size, domains, board):
+    for box in BOXES:
+        for tile in box:
+            if len(domains[tile]) == size and board[tile] == 0: return tile
+    return None
+            
+def __initDomains(board):
+    domains = {}
+    for r in ROW:
+        for c in COL:
+            slot = r+c
+            # init empty domain or write in number
+            if board[slot] == 0: domains[slot] = []
+            else: domains[slot] = [board[slot]]
+    return __fillDomains(board, domains)
+
+def __fillDomains(board, domains):
+    for box in BOXES:
+        for tile in box:
+            if board[tile] == 0:
+                domains[tile] = __getCandidates(tile, box, board)
+    return domains    
+
+def __getCandidates(tile, box, board):
+    candidates = []
+    row, col = tile[0], tile[1]
+    for num in range(1,10):
+        if not __isInBox(box, num, board) and not __isInRow(row, num, board) and not __isInCol(col, num, board):
+            candidates.append(num)
+    return candidates
+
+def __isInBox(box, num, board) -> bool:
+    for tile in box:
+        if board[tile] == num: 
+            return True
+    return False
+
+def __isInRow(row, num, board) -> bool:
+    for c in COL:
+        if board[row+c] == num: return True
+    return False
+
+def __isInCol(col, num, board) -> bool:
+    for r in ROW:
+        if board[r+col] == num: return True
+    return False
+
+def __checkBox(box, board):
+    for num in range(1, 10):
+        if not __isInBox(box, num, board): 
+            return False
+    return True
+
+def __isSolution(board) -> bool:
+    for box in BOXES:
+        if not __checkBox(box, board): 
+            return False
+    for r in ROW:
+        row = []
+        for c in COL:
+            row.append(board[r+c])
+        for num in range(1,10):
+            if num not in row: 
                 return False
-            domains[slot].remove(val)
-    # check col for inconsistencies
-    for j in ROW:
-        slot = j+col
-        if val in domains[slot]:
-            if len(domains[slot]) == 1:
+    for c in COL:
+        col = []
+        for r in ROW:
+            col.append(board[r+c])
+        for num in range(1,10):
+            if num not in col: 
                 return False
-            domains[slot].remove(val)
+    #print("is solution!")
     return True
 
 if __name__ == '__main__':
@@ -216,7 +240,7 @@ if __name__ == '__main__':
         print("starter board")
         print_board(board)
         solved_board = backtracking(board)
-        if isSolution(board): print("YAY SOLUTION")
+        if __isSolution(solved_board): print("YAY SOLUTION")
         else: print("returning wrong solution...")
         print_board(solved_board)
         
@@ -253,18 +277,16 @@ if __name__ == '__main__':
                       for r in range(9) for c in range(9)}
 
             # Print starting board. TODO: Comment this out when timing runs.
-            print_board(board)
+            #print_board(board)
 
             # Solve with backtracking
             solved_board = backtracking(board)
-            if isSolution(board): print("YAY SOLUTION")
-            else: print("returning wrong solution...")
-
-            # Print solved board. TODO: Comment this out when timing runs.
-            print_board(solved_board)
-
-            # Write board to file
             outfile.write(board_to_string(solved_board))
             outfile.write('\n')
+
+            # Print solved board. TODO: Comment this out when timing runs.
+            #print_board(solved_board)
+
+            # Write board to file
 
         print("Finishing all boards in file.")
